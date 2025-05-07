@@ -8,43 +8,51 @@ const octokit = new Octokit({
   auth: GITHUB_TOKEN
 });
 
-module.exports.createAndPushRepo = async function(landingPagePath, businessData) {
-  const repoName = `landing-${Date.now()}`;
+module.exports.createAndPushRepo = async function(content, businessData) {
+  const repoName = businessData.isUpdate ? businessData.repoName : `landing-${Date.now()}`;
   
   try {
-    // Send status update
-    this.onStatus?.('Creating new GitHub repository...');
-    
-    // Create new repository
-    const { data: repo } = await octokit.repos.createInOrg({
-      org: ORGANIZATION,
-      name: repoName,
-      description: `Landing page for ${businessData.name}`,
-      private: false,
-      auto_init: true
-    });
+    if (!businessData.isUpdate) {
+      this.onStatus?.('Creating new GitHub repository...');
+      
+      const { data: repo } = await octokit.repos.createInOrg({
+        org: ORGANIZATION,
+        name: repoName,
+        description: `Landing page for ${businessData.name}`,
+        private: false,
+        auto_init: true
+      });
 
-    this.onStatus?.('Repository created successfully!');
-    
-    // Read the HTML content
-    const content = await fs.readFile(landingPagePath, 'utf8');
-    
+      this.onStatus?.('Repository created successfully!');
+    }
+
     this.onStatus?.('Pushing landing page content...');
     
-    // Create index.html file in the repository
     await octokit.repos.createOrUpdateFileContents({
       owner: ORGANIZATION,
       repo: repoName,
       path: 'index.html',
-      message: 'Add landing page',
-      content: Buffer.from(content).toString('base64')
+      message: businessData.isUpdate ? 'Update landing page content' : 'Add landing page',
+      content: Buffer.from(content).toString('base64'),
+      ...(businessData.isUpdate && {
+        sha: await getFileSha(repoName, 'index.html')
+      })
     });
 
     this.onStatus?.('Content pushed successfully!');
     
-    return repo.html_url;
+    return `https://github.com/${ORGANIZATION}/${repoName}`;
   } catch (error) {
     this.onStatus?.(`Failed to create repository: ${error.message}`);
     throw error;
   }
+};
+
+async function getFileSha(repo, path) {
+  const { data } = await octokit.repos.getContent({
+    owner: ORGANIZATION,
+    repo: repo,
+    path: path
+  });
+  return data.sha;
 }

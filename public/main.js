@@ -1,15 +1,16 @@
-let currentStep = 'phone';
-let verifiedPhone = '';
+let currentStep = 'email';
+let verifiedEmail = '';
+let currentRepoName = ''; // Store the current repository name
 
 function showStep(stepId) {
     document.querySelectorAll('.form-step').forEach(step => step.classList.remove('active'));
     document.getElementById(`step-${stepId}`).classList.add('active');
 }
 
-async function verifyPhone() {
-    const phone = document.getElementById('phone').value;
-    if (!phone) {
-        alert('נא להזין מספר טלפון');
+async function verifyEmail() {
+    const email = document.getElementById('email').value;
+    if (!email) {
+        alert('נא להזין כתובת אימייל');
         return;
     }
 
@@ -17,11 +18,11 @@ async function verifyPhone() {
         const response = await fetch('/send-otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone })
+            body: JSON.stringify({ email })
         });
 
         if (response.ok) {
-            verifiedPhone = phone;
+            verifiedEmail = email;
             showStep('otp');
         } else {
             alert('שגיאה בשליחת קוד האימות');
@@ -43,11 +44,11 @@ async function verifyOTP() {
         const response = await fetch('/verify-otp', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ phone: verifiedPhone, otp })
+            body: JSON.stringify({ email: verifiedEmail, otp })
         });
 
         if (response.ok) {
-            showStep('business');
+            showStep('business-id'); // Changed to show business-id step first
         } else {
             alert('קוד שגוי');
         }
@@ -57,11 +58,27 @@ async function verifyOTP() {
     }
 }
 
+// Add new function to verify business registration number
+function verifyBusinessId() {
+    const businessRegistration = document.getElementById('business-registration').value;
+    
+    // Validate format (9 digits)
+    if (!/^\d{9}$/.test(businessRegistration)) {
+        alert('מספר ח״פ/עוסק מורשה חייב להכיל 9 ספרות בדיוק');
+        return;
+    }
+
+    // Here you could add additional validation or API call to verify the number
+    // For now, we'll just proceed to the next step
+    showStep('business');
+}
+
 async function generateLanding() {
+    const businessRegistration = document.getElementById('business-registration').value;
     const businessId = document.getElementById('business-id').value;
     const businessUnique = document.getElementById('business-unique').value;
 
-    if (!businessId || !businessUnique) {
+    if (!businessRegistration || !businessId || !businessUnique) {
         alert('נא למלא את כל השדות');
         return;
     }
@@ -71,47 +88,74 @@ async function generateLanding() {
     document.getElementById('split-screen').style.display = 'grid';
     document.getElementById('preview').classList.add('active');
 
-    // Update input summary
-    document.getElementById('business-summary').textContent = businessId;
+    // Update input summary to include business registration
+    document.getElementById('business-name').textContent = businessId;
+    document.getElementById('business-registration-display').textContent = businessRegistration;
     document.getElementById('description-summary').textContent = businessUnique;
+
+    let fullHTML = '';
+    let isCollectingHTML = false;
 
     // Start SSE connection
     const eventSource = new EventSource(`/stream?businessId=${encodeURIComponent(businessId)}&description=${encodeURIComponent(businessUnique)}`);
 
     eventSource.onmessage = (event) => {
         try {
-            if (event.data === '[DONE]') {
-                eventSource.close();
-                updateStatus('✨ Process completed');
-                return;
-            }
-
             const data = JSON.parse(event.data);
             
             switch (data.type) {
                 case 'content':
-                    fullHTML += data.chunk;
-                    document.getElementById('preview').innerHTML = fullHTML;
+                    const content = data.chunk;
+                    console.log('Received content:', content); // Debug logging
+                    
+                    // Clean the content and update HTML
+                    if (content.includes('```html')) {
+                        isCollectingHTML = true;
+                        fullHTML += content.replace('```html', '');
+                    } else if (content.includes('```')) {
+                        isCollectingHTML = false;
+                        fullHTML += content.replace('```', '');
+                    } else {
+                        fullHTML += content;
+                    }
+                    
+                    // Update preview with accumulated HTML
+                    const preview = document.getElementById('preview');
+                    preview.innerHTML = fullHTML;
+                    preview.style.direction = 'rtl';
+                    break;
+
+                case 'repo_url':
+                    currentRepoName = data.repoName; // Store the repo name
+                    // Display the repository URL in the sidebar
+                    const repoLink = document.getElementById('repo-link');
+                    repoLink.innerHTML = `
+                        <div class="mt-4 p-4 bg-blue-50 rounded-lg">
+                            <h3 class="text-lg font-semibold mb-2">🎉 האתר שלך מוכן!</h3>
+                            <p class="text-sm mb-2">לחץ על הקישור כדי לצפות באתר:</p>
+                            <a href="${data.url}" 
+                               target="_blank" 
+                               class="text-blue-500 hover:text-blue-700 underline break-all">
+                                ${data.url}
+                            </a>
+                        </div>
+                    `;
+                    repoLink.style.display = 'block';
+                    showEditInterface(); // Show edit interface after initial generation
                     break;
 
                 case 'status':
                     updateStatus(data.message);
                     break;
 
-                case 'repo_url':
-                    const repoLink = document.getElementById('repo-link');
-                    repoLink.innerHTML = `
-                        <div class="font-medium mb-2">🎉 Landing Page Repository</div>
-                        <a href="${data.url}" target="_blank" 
-                           class="text-blue-500 hover:underline break-all">
-                          ${data.url}
-                        </a>
-                    `;
-                    repoLink.style.display = 'block';
+                case 'done':
+                    eventSource.close();
+                    updateStatus('✨ התהליך הושלם בהצלחה');
                     break;
 
                 case 'error':
-                    updateStatus(`❌ Error: ${data.message}`);
+                    updateStatus(`❌ שגיאה: ${data.message}`);
+                    eventSource.close();
                     break;
             }
         } catch (err) {
@@ -119,98 +163,122 @@ async function generateLanding() {
         }
     };
 
-    eventSource.onerror = () => {
-        console.error('EventSource failed.');
+    eventSource.onerror = (error) => {
+        console.error('EventSource failed:', error);
         eventSource.close();
-        updateStatus('❌ Connection failed');
+        updateStatus('❌ החיבור נכשל');
     };
 }
-
-document.getElementById('generate').addEventListener('click', () => {
-    const desc = document.getElementById('description').value;
-    const placeId = document.getElementById('placeid').value;
-    
-    if (!desc || !placeId) {
-        alert('Please provide both a description and a Place ID.');
-        return;
-    }
-
-    // Show split screen and hide main container
-    document.getElementById('main-container').style.display = 'none';
-    document.getElementById('split-screen').style.display = 'grid';
-    document.getElementById('preview').classList.add('active');
-
-    // Update input summary
-    document.getElementById('description-summary').textContent = desc;
-    document.getElementById('placeid-summary').textContent = placeId;
-
-    // Clear previous content
-    document.getElementById('status').innerHTML = '';
-    document.getElementById('preview').innerHTML = '';
-    document.getElementById('repo-link').style.display = 'none';
-
-    let fullHTML = '';
-    const eventSource = new EventSource(`/stream?description=${encodeURIComponent(desc)}&googleId=${encodeURIComponent(placeId)}`);
-
-    eventSource.onmessage = (event) => {
-        try {
-            if (event.data === '[DONE]') {
-                eventSource.close();
-                updateStatus('✨ Process completed');
-                return;
-            }
-
-            const data = JSON.parse(event.data);
-            
-            switch (data.type) {
-                case 'content':
-                    fullHTML += data.chunk;
-                    document.getElementById('preview').innerHTML = fullHTML;
-                    break;
-
-                case 'status':
-                    updateStatus(data.message);
-                    break;
-
-                case 'repo_url':
-                    const repoLink = document.getElementById('repo-link');
-                    repoLink.innerHTML = `
-                        <div class="font-medium mb-2">🎉 Landing Page Repository</div>
-                        <a href="${data.url}" target="_blank" 
-                           class="text-blue-500 hover:underline break-all">
-                          ${data.url}
-                        </a>
-                    `;
-                    repoLink.style.display = 'block';
-                    break;
-
-                case 'error':
-                    updateStatus(`❌ Error: ${data.message}`);
-                    break;
-            }
-        } catch (err) {
-            console.error('Error processing message:', err);
-        }
-    };
-
-    eventSource.onerror = () => {
-        console.error('EventSource failed.');
-        eventSource.close();
-        updateStatus('❌ Connection failed');
-    };
-});
 
 function updateStatus(message) {
     const statusEl = document.createElement('div');
     statusEl.className = 'status-message';
     
-    const time = new Date().toLocaleTimeString();
+    const time = new Date().toLocaleTimeString('he-IL');
     statusEl.innerHTML = `
         <span class="text-gray-500">[${time}]</span>
-        <span class="ml-2">${message}</span>
+        <span class="mr-2">${message}</span>
     `;
     
     const statusContainer = document.getElementById('status');
     statusContainer.appendChild(statusEl);
     statusContainer.scrollTop = statusContainer.scrollHeight;
+}
+
+// Show edit interface after initial generation
+function showEditInterface() {
+    document.getElementById('edit-interface').style.display = 'block';
+}
+
+async function updateLandingPage() {
+    const editRequest = document.getElementById('edit-request').value;
+    if (!editRequest) {
+        alert('נא להזין את השינויים המבוקשים');
+        return;
+    }
+
+    const request = {
+        businessId: document.getElementById('business-name').textContent,
+        description: document.getElementById('description-summary').textContent,
+        editRequest: editRequest,
+        currentRepoName: currentRepoName
+    };
+
+    // Start SSE connection for the update
+    const eventSource = new EventSource(`/update-stream?${new URLSearchParams(request)}`);
+
+    // Clear previous edit request
+    document.getElementById('edit-request').value = '';
+    
+    let fullHTML = '';
+    let isCollectingHTML = false;
+
+    updateStatus('🔄 מעדכן את דף הנחיתה...');
+
+    eventSource.onmessage = (event) => {
+        try {
+            const data = JSON.parse(event.data);
+            
+            switch (data.type) {
+                case 'content':
+                    const content = data.chunk;
+                    console.log('Received update content:', content); // Debug logging
+                    
+                    // Clean the content and update HTML
+                    if (content.includes('```html')) {
+                        isCollectingHTML = true;
+                        fullHTML += content.replace('```html', '');
+                    } else if (content.includes('```')) {
+                        isCollectingHTML = false;
+                        fullHTML += content.replace('```', '');
+                    } else {
+                        fullHTML += content;
+                    }
+                    
+                    // Update preview with accumulated HTML
+                    const preview = document.getElementById('preview');
+                    preview.innerHTML = fullHTML;
+                    preview.style.direction = 'rtl';
+                    break;
+
+                case 'repo_url':
+                    // Update the repository URL in the sidebar
+                    const repoLink = document.getElementById('repo-link');
+                    repoLink.innerHTML = `
+                        <div class="mt-4 p-4 bg-blue-50 rounded-lg">
+                            <h3 class="text-lg font-semibold mb-2">🎉 האתר עודכן בהצלחה!</h3>
+                            <p class="text-sm mb-2">לחץ על הקישור כדי לצפות באתר המעודכן:</p>
+                            <a href="${data.url}" 
+                               target="_blank" 
+                               class="text-blue-500 hover:text-blue-700 underline break-all">
+                                ${data.url}
+                            </a>
+                        </div>
+                    `;
+                    repoLink.style.display = 'block';
+                    break;
+
+                case 'status':
+                    updateStatus(data.message);
+                    break;
+
+                case 'done':
+                    eventSource.close();
+                    break;
+
+                case 'error':
+                    updateStatus(`❌ שגיאה: ${data.message}`);
+                    eventSource.close();
+                    break;
+            }
+        } catch (err) {
+            console.error('Error processing message:', err);
+        }
+    };
+
+    eventSource.onerror = (error) => {
+        console.error('EventSource failed:', error);
+        eventSource.close();
+        updateStatus('❌ החיבור נכשל');
+    };
 }
