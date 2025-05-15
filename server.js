@@ -36,22 +36,23 @@ function generateVerificationCode() {
 // Add new user schema
 const createUser = async (userData) => {
     try {
-      const userRef = db.collection('users').doc(userData.id);
-      await userRef.set({
-        id: userData.id,
-        email: userData.email,
-        businessName: userData.businessName,
-        businessDescription: userData.businessDescription,
-        landingPageGoal: userData.landingPageGoal,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-      return userRef;
+        const userRef = db.collection('users').doc(userData.id);
+        await userRef.set({
+            id: userData.id,
+            email: userData.email,
+            businessName: userData.businessName,
+            businessDescription: userData.businessDescription,
+            landingPageGoal: userData.landingPageGoal,
+            photoNames: userData.photoNames, // Save photo names
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        return userRef;
     } catch (error) {
-      console.error('Error creating user:', error);
-      throw error;
+        console.error('Error creating user:', error);
+        throw error;
     }
-  };
-  
+};
+
 // Replace the /send-verification route
 app.post('/send-verification', async (req, res) => {
     const { email } = req.body;
@@ -130,31 +131,39 @@ app.post('/verify-code', async (req, res) => {
 });
 
 app.post('/register', upload.array('photos', 5), async (req, res) => {
-        const { id, email, businessName, businessDescription, landingPageGoal } = req.body;
-        const files = req.files;
+    const { id, email, businessName, businessDescription, landingPageGoal } = req.body;
+    const files = req.files;
 
-        try {
-            // Generate URLs for uploaded files
-            const photoUrls = files.map(file => {
-                return `/uploads/${id}/${file.filename}`;
-            });
+    // Validate required fields
+    if (!id || !email || !businessName || !businessDescription || !landingPageGoal) {
+        return res.status(400).json({ error: 'All fields are required' });
+    }
 
-            // Create user in Firestore
-            await createUser({
-                id,
-                email,
-                businessName,
-                businessDescription,
-                landingPageGoal,
-                photoUrls
-            });
+    console.log('Request Body:', req.body);
+    console.log('Uploaded Files:', files);
 
-            res.status(200).json({ message: 'User registered successfully' });
-        } catch (error) {
-            console.error('Registration error:', error);
-            res.status(500).json({ error: 'Registration failed' });
-        }
-    });
+    try {
+        // Extract photo names
+        const photoNames = files.map(file => file.filename);
+
+        console.log('Photo Names:', photoNames);
+
+        // Create user in Firestore
+        await createUser({
+            id,
+            email,
+            businessName,
+            businessDescription,
+            landingPageGoal,
+            photoNames // Save photo names in Firestore
+        });
+
+        res.status(200).json({ message: 'User registered successfully' });
+    } catch (error) {
+        console.error('Registration error:', error);
+        res.status(500).json({ error: 'Registration failed' });
+    }
+});
   
 // Replace verify-otp with this:
 app.post('/verify-email', async (req, res) => {

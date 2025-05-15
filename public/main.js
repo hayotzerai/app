@@ -5,11 +5,30 @@ let formData = new FormData();
 let currentBusinessId = '';
 
 function showStep(stepId) {
-    document.querySelectorAll('.form-step').forEach(step => step.classList.remove('active'));
-    document.getElementById(`step-${stepId}`).classList.add('active');
+    // Hide all steps
+    document.querySelectorAll('.form-step').forEach(step => {
+        if (!step.classList.contains('hidden')) {
+            step.classList.add('hidden'); // Add 'hidden' class only if it doesn't already exist
+        }
+    });
+
+    // Show the requested step
+    setTimeout(() => {
+        console.log('Showing step:', stepId); // Debug logging
+        document.getElementById(stepId).classList.remove('hidden'); // Remove 'hidden' class to show
+        updateProgressBar(stepId); // Update progress bar
+    }, 1000);
 }
 
-// Update the verifyEmail function:
+function updateProgressBar(stepId) {
+    const steps = ['step-email', 'step-otp', 'step-business-id', 'step-business', 'step-uploads'];
+    const currentStepIndex = steps.indexOf(stepId);
+    const progressPercentage = ((currentStepIndex + 1) / steps.length) * 100;
+
+    const progressBar = document.getElementById('progress-bar');
+    progressBar.style.width = `${progressPercentage}%`;
+}
+
 async function verifyEmail() {
     const email = document.getElementById('email').value;
     if (!email) {
@@ -28,9 +47,13 @@ async function verifyEmail() {
 
         if (response.ok) {
             alert('קוד אימות נשלח לכתובת האימייל שלך');
-            showStep('otp');
+            console.log('Verification code sent successfully');
+            showStep('step-otp'); // Use the correct step ID
         } else {
-            throw new Error('Failed to send verification code');
+            const errorData = await response.json();
+            const errorMessage = errorData.error || 'Failed to send verification code';
+            alert(`שגיאה בשליחת קוד האימות: ${errorMessage}`);
+            console.error('Error sending verification code:', errorMessage);
         }
     } catch (error) {
         console.error('Error:', error);
@@ -60,7 +83,8 @@ async function verifyOTP() {
 
         if (response.ok) {
             verifiedEmail = email;
-            showStep('business-id');
+
+            showStep('step-business-id'); // Use the correct step ID
         } else {
             alert(data.error === 'Verification code expired' ? 
                   'קוד האימות פג תוקף. אנא בקש קוד חדש' : 
@@ -72,35 +96,6 @@ async function verifyOTP() {
     }
 }
 
-// Remove verifyOTP function as it's no longer needed
-
-// Add this new function for file validation
-function validateFiles(input) {
-    const maxSize = 10 * 1024 * 1024; // 10MB
-    const maxFiles = 5;
-    
-    if (input.files.length > maxFiles) {
-        alert(`ניתן להעלות עד ${maxFiles} תמונות בלבד`);
-        input.value = '';
-        return false;
-    }
-    
-    for (const file of input.files) {
-        if (file.size > maxSize) {
-            alert(`הקובץ ${file.name} גדול מ-10MB`);
-            input.value = '';
-            return false;
-        }
-        if (!file.type.startsWith('image/')) {
-            alert(`הקובץ ${file.name} אינו תמונה`);
-            input.value = '';
-            return false;
-        }
-    }
-    return true;
-}
-
-// Modify verifyBusinessId function
 function verifyBusinessId() {
     const businessRegistration = document.getElementById('business-registration').value;
     currentBusinessId = businessRegistration; // Store the ID for later use
@@ -110,10 +105,9 @@ function verifyBusinessId() {
         return;
     }
     
-    showStep('business');
+    showStep('step-business'); // Use the correct step ID
 }
 
-// Modify the business details step handler
 function handleBusinessDetails() {
     const businessName = document.getElementById('business-id').value;
     const businessUnique = document.getElementById('business-unique').value;
@@ -125,28 +119,42 @@ function handleBusinessDetails() {
 
     formData.append('businessName', businessName);
     formData.append('businessDescription', businessUnique);
-    showStep('uploads');
+    showStep('step-uploads'); // Use the correct step ID
 }
+let b_id = '';
+let b_name = '';
+let b_description = '';
+let b_landingGoal = '';
+let b_photos = [];
 
-// Add new registration submission function
 async function submitRegistration() {
     const photos = document.getElementById('business-photos').files;
-    const landingGoal = document.getElementById('landing-goal').value;
+    const landingGoal = document.getElementById('landing-goal-type').value;
+    const businessName = document.getElementById('business-id').value; // Ensure this field exists
+    const businessDescription = document.getElementById('business-unique').value;
 
-    if (photos.length === 0 || !landingGoal) {
-        alert('נא להעלות לפחות תמונה אחת ולמלא את מטרת דף הנחיתה');
+    if (photos.length === 0 || !landingGoal || !businessName || !businessDescription) {
+        alert('נא למלא את כל השדות ולהעלות לפחות תמונה אחת');
         return;
     }
 
     // Add all data to FormData
     formData.append('id', currentBusinessId);
+    b_id = currentBusinessId;
     formData.append('email', verifiedEmail);
+    formData.append('businessName', businessName); // Add businessName
+    b_name = businessName;
+    formData.append('businessDescription', businessDescription); // Add businessDescription
+    b_description = businessDescription;
     formData.append('landingPageGoal', landingGoal);
-    
+    b_landingGoal = landingGoal;
+
     // Add photos
     for (const photo of photos) {
         formData.append('photos', photo);
     }
+
+    console.log('FormData:', Array.from(formData.entries()));
 
     try {
         const response = await fetch('/register', {
@@ -155,8 +163,8 @@ async function submitRegistration() {
         });
 
         if (response.ok) {
-            // Start the landing page generation process
-            generateLanding();
+            console.log('Registration successful. Starting landing page generation...');
+            generateLanding(); // Start landing page generation after successful registration
         } else {
             throw new Error('Registration failed');
         }
@@ -166,94 +174,89 @@ async function submitRegistration() {
     }
 }
 
-// Modify generateLanding function to use stored data
 async function generateLanding() {
-    // Show split screen and hide main container
-    document.getElementById('main-container').style.display = 'none';
-    document.getElementById('split-screen').style.display = 'grid';
-    document.getElementById('preview').classList.add('active');
+    const businessName = b_name;
+    const businessUnique = b_id;
+    const landingGoal = b_landingGoal;
+    const businessDescription = b_description;
 
-    // Update input summary
-    document.getElementById('business-name').textContent = formData.get('businessName');
-    document.getElementById('business-registration-display').textContent = currentBusinessId;
-    document.getElementById('description-summary').textContent = formData.get('businessDescription');
+    // DOM Elements
+    const splitScreen = document.getElementById('split-screen');
+    const statusEl = document.getElementById('status');
+    const output = document.getElementById('preview');
+    const repoLink = document.getElementById('repo-link');
+    const businessNameDisplay = document.getElementById('business-name');
+    const businessRegistrationDisplay = document.getElementById('business-registration-display');
+    const descriptionSummary = document.getElementById('description-summary');
 
-    let fullHTML = '';
-    let isCollectingHTML = false;
+    if (!businessName || !businessUnique) {
+        alert('נא למלא את כל השדות');
+        return;
+    }
 
-    // Start SSE connection
-    const eventSource = new EventSource(`/stream?businessId=${encodeURIComponent(formData.get('businessName'))}&description=${encodeURIComponent(formData.get('businessDescription'))}`);
+    // Show the split screen UI
+    splitScreen.classList.remove('hidden');
 
-    eventSource.onmessage = (event) => {
-        try {
-            const data = JSON.parse(event.data);
-            
-            switch (data.type) {
-                case 'content':
-                    const content = data.chunk;
-                    console.log('Received content:', content); // Debug logging
-                    
-                    // Clean the content and update HTML
-                    if (content.includes('```html')) {
-                        isCollectingHTML = true;
-                        fullHTML += content.replace('```html', '');
-                    } else if (content.includes('```')) {
-                        isCollectingHTML = false;
-                        fullHTML += content.replace('```', '');
-                    } else {
-                        fullHTML += content;
-                    }
-                    
-                    // Update preview with accumulated HTML
-                    const preview = document.getElementById('preview');
-                    preview.innerHTML = fullHTML;
-                    preview.style.direction = 'rtl';
-                    break;
+    // Fill in business info summary
+    businessNameDisplay.textContent = businessName;
+    businessRegistrationDisplay.textContent = businessUnique;
+    descriptionSummary.textContent = businessDescription;
 
-                case 'repo_url':
-                    currentRepoName = data.repoName; // Store the repo name
-                    // Display the repository URL in the sidebar
-                    const repoLink = document.getElementById('repo-link');
-                    repoLink.innerHTML = `
-                        <div class="mt-4 p-4 bg-blue-50 rounded-lg">
-                            <h3 class="text-lg font-semibold mb-2">🎉 האתר שלך מוכן!</h3>
-                            <p class="text-sm mb-2">לחץ על הקישור כדי לצפות באתר:</p>
-                            <a href="${data.url}" 
-                               target="_blank" 
-                               class="text-blue-500 hover:text-blue-700 underline break-all">
-                                ${data.url}
-                            </a>
-                        </div>
-                    `;
-                    repoLink.style.display = 'block';
-                    showEditInterface(); // Show edit interface after initial generation
-                    break;
+    // Reset UI elements
+    statusEl.textContent = '⏳ מתחיל ביצירת הדף...';
+    output.innerHTML = '';
+    output.classList.remove('hidden');
+    repoLink.classList.add('hidden');
 
-                case 'status':
-                    updateStatus(data.message);
-                    break;
+    let fullHtml = '';
 
-                case 'done':
-                    eventSource.close();
-                    updateStatus('✨ התהליך הושלם בהצלחה');
-                    break;
+    try {
+        const response = await fetch(`/stream?description=${encodeURIComponent(businessUnique)}&businessId=${encodeURIComponent(currentBusinessId)}&businessName=${encodeURIComponent(businessName)}&landingGoal=${encodeURIComponent(landingGoal)}&businessDescription=${encodeURIComponent(businessDescription)}`);
+        if (!response.ok) throw new Error('Failed to generate landing page');
 
-                case 'error':
-                    updateStatus(`❌ שגיאה: ${data.message}`);
-                    eventSource.close();
-                    break;
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            const lines = buffer.split('\n\n');
+            buffer = lines.pop(); // Keep the last partial line for the next chunk
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    const json = JSON.parse(line.slice(6));
+                    handleStreamMessage(json);
+                }
             }
-        } catch (err) {
-            console.error('Error processing message:', err);
         }
-    };
+    } catch (error) {
+        console.error('Error generating landing page:', error);
+        statusEl.textContent = '❌ שגיאה ביצירת דף הנחיתה';
+    }
 
-    eventSource.onerror = (error) => {
-        console.error('EventSource failed:', error);
-        eventSource.close();
-        updateStatus('❌ החיבור נכשל');
-    };
+    function handleStreamMessage(data) {
+        if (data.type === 'status') {
+            statusEl.textContent = data.message;
+        } else if (data.type === 'content') {
+            fullHtml += data.chunk;
+            output.innerHTML = fullHtml;
+        } else if (data.type === 'repo_url') {
+            repoLink.classList.remove('hidden');
+            repoLink.innerHTML = `<a href="${data.url}" target="_blank" class="text-blue-600 underline">🔗 לצפייה במאגר GitHub</a>`;
+        } else if (data.type === 'success') {
+            statusEl.textContent = data.message;
+        } else if (data.type === 'error') {
+            statusEl.textContent = `❌ ${data.message}`;
+        }
+    }
 }
+
+
 
 function updateStatus(message) {
     const statusEl = document.createElement('div');
@@ -366,4 +369,26 @@ async function updateLandingPage() {
         eventSource.close();
         updateStatus('❌ החיבור נכשל');
     };
+}
+
+function validateFiles(input) {
+    const maxFileSize = 10 * 1024 * 1024; // 10MB
+    const allowedFileTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    const files = input.files;
+
+    for (const file of files) {
+        if (!allowedFileTypes.includes(file.type)) {
+            alert(`סוג הקובץ ${file.name} אינו נתמך. ניתן להעלות רק קבצים מסוג JPG, PNG, או WEBP.`);
+            input.value = ''; // Clear the input
+            return;
+        }
+
+        if (file.size > maxFileSize) {
+            alert(`הקובץ ${file.name} גדול מדי. ניתן להעלות קבצים בגודל של עד 10MB בלבד.`);
+            input.value = ''; // Clear the input
+            return;
+        }
+    }
+
+    alert('הקבצים נבדקו בהצלחה!');
 }
