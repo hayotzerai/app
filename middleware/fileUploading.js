@@ -8,7 +8,7 @@ const storage = multer.diskStorage({
     const userDir = path.join(__dirname, '../public/uploads', req.body.id);
     // Create user directory if it doesn't exist
     if (!fs.existsSync(userDir)) {
-      fs.mkdirSync(userDir, { recursive: true });
+      fs.mkdirSync(userDir, { recursive: true }); 
     }
     cb(null, userDir);
   },
