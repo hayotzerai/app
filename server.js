@@ -192,152 +192,78 @@ app.post('/verify-email', async (req, res) => {
 
 
 
-app.get('/stream', async (req, res) => {
-    // Set headers for SSE
+app.post('/stream', async (req, res) => {
+    // SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-
-    const userDescription = req.query.description;
-    const businessId = req.query.businessId;
-    const businessName = req.query.businessName || 'Business';
-    let generatedHTML = ''; // Add this to store the complete HTML
-
-    const sendStatus = (message, type = 'status') => {
-        res.write(`data: {"type": "${type}", "message": ${JSON.stringify(message)}}\n\n`);
-    };
-
-    try {
-        sendStatus('🚀 מתחיל בתהליך יצירת דף הנחיתה...');
-        
-        const stream = await openai.chat.completions.create({
-            model: 'o4-mini-2025-04-16',
-            stream: true,
-            messages: [{ 
-                role: 'user', 
-                content: `Create a high-conversion landing page in Hebrew for: ${userDescription}. 
-                Business name: ${businessId}.
-                Use only valid HTML with Tailwind CSS classes.
-                Use photos ONLY from dreamstime.com.
-                Make sure the layout is optimized for Israeli audiences:
-                - Hebrew language with full RTL alignment.
-                - In the hero section, use a full-width background image behind the text by setting a \`div\` with \`bg-[url('IMAGE_URL')]\`, \`bg-cover\`, \`bg-center\`, and \`relative\`, and position the headline, subheadline, and call-to-action inside a child \`div\` with \`absolute\` or \`z-10\`.
-                - Include a bold main headline, a subheadline, and a call-to-action button overlaid on the hero background.
-                - Include a section with key features or benefits (bulleted).
-                - Add a technical or product specification table if relevant.
-                - Include trust signals like warranty, reviews, or guarantees.
-                - Make the design colorful and friendly, with fonts and layout common to Israeli e-commerce pages.
-                Return only the full HTML content, no additional explanation.`
-            }]
-
-        });
-
-        for await (const chunk of stream) {
-            const content = chunk.choices?.[0]?.delta?.content;
-            if (content) {
-                generatedHTML += content; // Accumulate the HTML
-                res.write(`data: {"type": "content", "chunk": ${JSON.stringify(content)}}\n\n`);
-            }
-        }
-
-        // Create and push to GitHub after generation is complete
-        sendStatus('📁 מכין את המאגר ב-GitHub...');
-
-        // Save the generated HTML to a temporary file
-        const tempDir = os.tmpdir();
-        const tempFilePath = path.join(tempDir, `landingPage_${Date.now()}.html`);
-        await fs.writeFile(tempFilePath, generatedHTML, 'utf8');
-
-        // Pass the temporary file path to createAndPushRepo
-        const repoUrl = await createAndPushRepo(tempFilePath, {
-            name: businessId, // Pass business ID or other relevant data
-            description: userDescription
-        });
-
-        res.write(`data: {"type": "repo_url", "url": "${repoUrl}"}\n\n`);
-        sendStatus('🎉 המאגר נוצר בהצלחה!', 'success');
-
-        // Clean up the temporary file after use
-        await fs.unlink(tempFilePath);
-
-        // Send completion status
-        res.write(`data: {"type": "done"}\n\n`);
-    } catch (error) {
-        console.error('Stream error:', error);
-        res.write(`data: {"type": "error", "message": "אירעה שגיאה ביצירת דף הנחיתה"}\n\n`);
-    }
-});
-
-// Add this new route
-app.get('/update-stream', async (req, res) => {
-    // Set headers for SSE
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    const { businessId, description, editRequest, currentRepoName } = req.query;
+  
+    // Destructure exactly what you sent
+    const {
+      businessName = 'Business',
+      businessUnique: businessId,
+      landingGoal,
+      businessDescription,
+      photosPath = []
+    } = req.body;
+  
     let generatedHTML = '';
-
+  
     const sendStatus = (message, type = 'status') => {
-        res.write(`data: {"type": "${type}", "message": ${JSON.stringify(message)}}\n\n`);
+      res.write(`data: ${JSON.stringify({ type, message })}\n\n`);
     };
-
+  
     try {
-        sendStatus('🔄 מעדכן את דף הנחיתה...');
-        
-        const stream = await openai.chat.completions.create({
-            model: 'o4-mini-2025-04-16',
-            stream: true,
-            messages: [{ 
-                role: 'user', 
-                content: `Update the landing page HTML based on this request: ${editRequest}
-                Original business context:
-                Business name: ${businessId}
-                Description: ${description}
-                Use only valid HTML with Tailwind CSS classes.
-                Return only the full HTML content, no additional explanation.
-                Make sure all content remains in Hebrew and RTL aligned.`
-            }]
-        });
-
-        for await (const chunk of stream) {
-            const content = chunk.choices?.[0]?.delta?.content;
-            if (content) {
-                generatedHTML += content; // Accumulate the HTML
-                res.write(`data: {"type": "content", "chunk": ${JSON.stringify(content)}}\n\n`);
-            }
+      sendStatus('🚀 מתחיל בתהליך יצירת דף הנחיתה…');
+  
+      // Build your user message, injecting the photosPath array
+      const userPrompt = `
+  Create a high-conversion landing page in Hebrew for: ${businessDescription}.
+  Business name: ${businessName}.
+  Business ID: ${businessId}.
+  Use these photos paths: ${photosPath.join(', ')}.
+  The landing page's goal is: ${landingGoal}.
+  — Use only valid HTML with Tailwind CSS classes.
+  — RTL Hebrew layout optimized for Israeli audiences.
+  Return only the full HTML content, no extra explanation.
+  `;
+  
+      const stream = await openai.chat.completions.create({
+        model: 'o4-mini-2025-04-16',
+        stream: true,
+        messages: [{ role: 'user', content: userPrompt }]
+      });
+  
+      // Stream the chunks
+      for await (const chunk of stream) {
+        const content = chunk.choices?.[0]?.delta?.content;
+        if (content) {
+          generatedHTML += content;
+          res.write(`data: ${JSON.stringify({ type: 'content', chunk: content })}\n\n`);
         }
-
-        // Create and push to GitHub after generation is complete
-        sendStatus('📁 מכין את המאגר ב-GitHub...');
-
-        // Save the generated HTML to a temporary file
-        const tempDir = os.tmpdir();
-        const tempFilePath = path.join(tempDir, `landingPage_${Date.now()}.html`);
-        await fs.writeFile(tempFilePath, generatedHTML, 'utf8');
-
-        // Update the repository
-        const repoUrl = await createAndPushRepo(tempFilePath, {
-            name: businessId,
-            description: description,
-            repoName: currentRepoName,
-            isUpdate: true
-        });
-
-        // Send the repository URL to the client
-        res.write(`data: {"type": "repo_url", "url": "${repoUrl}"}\n\n`);
-        sendStatus('✨ העדכון הושלם בהצלחה!', 'success');
-
-        // Clean up the temporary file
-        await fs.unlink(tempFilePath);
-
-        // Send completion status
-        res.write(`data: {"type": "done"}\n\n`);
-    } catch (error) {
-        console.error('Stream error:', error);
-        res.write(`data: {"type": "error", "message": "אירעה שגיאה בעדכון דף הנחיתה"}\n\n`);
+      }
+  
+      // Once done, push to GitHub…
+      sendStatus('📁 מכין את המאגר ב‑GitHub…');
+  
+      const tempFile = path.join(os.tmpdir(), `landing_${Date.now()}.html`);
+      await fs.writeFile(tempFile, generatedHTML, 'utf8');
+      const repoUrl = await createAndPushRepo(tempFile, {
+        name: businessId,
+        description: businessDescription
+      });
+  
+      res.write(`data: ${JSON.stringify({ type: 'repo_url', url: repoUrl })}\n\n`);
+      sendStatus('🎉 המאגר נוצר בהצלחה!', 'success');
+      await fs.unlink(tempFile);
+      res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+      
+    } catch (err) {
+      console.error(err);
+      res.write(`data: ${JSON.stringify({ type: 'error', message: 'אירעה שגיאה ביצירת דף הנחיתה' })}\n\n`);
     }
-});
+  });
+
 
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);

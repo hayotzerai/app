@@ -152,6 +152,8 @@ async function submitRegistration() {
     // Add photos
     for (const photo of photos) {
         formData.append('photos', photo);
+        b_photos.push(`uploads/${currentBusinessId}/${currentBusinessId}_${photo.name}`);
+
     }
 
     console.log('FormData:', Array.from(formData.entries()));
@@ -211,7 +213,19 @@ async function generateLanding() {
     let fullHtml = '';
 
     try {
-        const response = await fetch(`/stream?description=${encodeURIComponent(businessUnique)}&businessId=${encodeURIComponent(currentBusinessId)}&businessName=${encodeURIComponent(businessName)}&landingGoal=${encodeURIComponent(landingGoal)}&businessDescription=${encodeURIComponent(businessDescription)}`);
+        const response = await fetch('/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              businessName,
+              businessUnique,
+              landingGoal,
+              businessDescription,
+              photosPath: b_photos
+            })
+          });
+        
+        
         if (!response.ok) throw new Error('Failed to generate landing page');
 
         const reader = response.body.getReader();
@@ -254,7 +268,7 @@ async function generateLanding() {
             statusEl.textContent = `❌ ${data.message}`;
         }
     }
-}
+}   
 
 
 
