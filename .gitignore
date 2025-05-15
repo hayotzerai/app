@@ -28,3 +28,6 @@ Thumbs.db
 .idea/
 *.sublime-project
 *.sublime-workspace/public/uploads
+
+/public/uploads/
+
