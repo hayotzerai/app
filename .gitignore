@@ -27,4 +27,4 @@ Thumbs.db
 .vscode/
 .idea/
 *.sublime-project
-*.sublime-workspace
+*.sublime-workspace/public/uploads

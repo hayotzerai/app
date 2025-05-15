@@ -1,12 +1,15 @@
 let currentStep = 'email';
 let verifiedEmail = '';
 let currentRepoName = ''; // Store the current repository name
+let formData = new FormData();
+let currentBusinessId = '';
 
 function showStep(stepId) {
     document.querySelectorAll('.form-step').forEach(step => step.classList.remove('active'));
     document.getElementById(`step-${stepId}`).classList.add('active');
 }
 
+// Update the verifyEmail function:
 async function verifyEmail() {
     const email = document.getElementById('email').value;
     if (!email) {
@@ -15,17 +18,19 @@ async function verifyEmail() {
     }
 
     try {
-        const response = await fetch('/send-otp', {
+        const response = await fetch('/send-verification', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json'
+            },
             body: JSON.stringify({ email })
         });
 
         if (response.ok) {
-            verifiedEmail = email;
+            alert('קוד אימות נשלח לכתובת האימייל שלך');
             showStep('otp');
         } else {
-            alert('שגיאה בשליחת קוד האימות');
+            throw new Error('Failed to send verification code');
         }
     } catch (error) {
         console.error('Error:', error);
@@ -34,23 +39,32 @@ async function verifyEmail() {
 }
 
 async function verifyOTP() {
-    const otp = document.getElementById('otp').value;
-    if (!otp) {
-        alert('נא להזין את הקוד שקיבלת');
+    const email = document.getElementById('email').value;
+    const code = document.getElementById('otp').value;
+
+    if (!code) {
+        alert('נא להזין את קוד האימות');
         return;
     }
 
     try {
-        const response = await fetch('/verify-otp', {
+        const response = await fetch('/verify-code', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: verifiedEmail, otp })
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ email, code })
         });
 
+        const data = await response.json();
+
         if (response.ok) {
-            showStep('business-id'); // Changed to show business-id step first
+            verifiedEmail = email;
+            showStep('business-id');
         } else {
-            alert('קוד שגוי');
+            alert(data.error === 'Verification code expired' ? 
+                  'קוד האימות פג תוקף. אנא בקש קוד חדש' : 
+                  'קוד אימות שגוי. אנא נסה שוב');
         }
     } catch (error) {
         console.error('Error:', error);
@@ -58,46 +72,117 @@ async function verifyOTP() {
     }
 }
 
-// Add new function to verify business registration number
+// Remove verifyOTP function as it's no longer needed
+
+// Add this new function for file validation
+function validateFiles(input) {
+    const maxSize = 10 * 1024 * 1024; // 10MB
+    const maxFiles = 5;
+    
+    if (input.files.length > maxFiles) {
+        alert(`ניתן להעלות עד ${maxFiles} תמונות בלבד`);
+        input.value = '';
+        return false;
+    }
+    
+    for (const file of input.files) {
+        if (file.size > maxSize) {
+            alert(`הקובץ ${file.name} גדול מ-10MB`);
+            input.value = '';
+            return false;
+        }
+        if (!file.type.startsWith('image/')) {
+            alert(`הקובץ ${file.name} אינו תמונה`);
+            input.value = '';
+            return false;
+        }
+    }
+    return true;
+}
+
+// Modify verifyBusinessId function
 function verifyBusinessId() {
     const businessRegistration = document.getElementById('business-registration').value;
+    currentBusinessId = businessRegistration; // Store the ID for later use
     
-    // Validate format (9 digits)
     if (!/^\d{9}$/.test(businessRegistration)) {
         alert('מספר ח״פ/עוסק מורשה חייב להכיל 9 ספרות בדיוק');
         return;
     }
-
-    // Here you could add additional validation or API call to verify the number
-    // For now, we'll just proceed to the next step
+    
     showStep('business');
 }
 
-async function generateLanding() {
-    const businessRegistration = document.getElementById('business-registration').value;
-    const businessId = document.getElementById('business-id').value;
+// Modify the business details step handler
+function handleBusinessDetails() {
+    const businessName = document.getElementById('business-id').value;
     const businessUnique = document.getElementById('business-unique').value;
 
-    if (!businessRegistration || !businessId || !businessUnique) {
+    if (!businessName || !businessUnique) {
         alert('נא למלא את כל השדות');
         return;
     }
 
+    formData.append('businessName', businessName);
+    formData.append('businessDescription', businessUnique);
+    showStep('uploads');
+}
+
+// Add new registration submission function
+async function submitRegistration() {
+    const photos = document.getElementById('business-photos').files;
+    const landingGoal = document.getElementById('landing-goal').value;
+
+    if (photos.length === 0 || !landingGoal) {
+        alert('נא להעלות לפחות תמונה אחת ולמלא את מטרת דף הנחיתה');
+        return;
+    }
+
+    // Add all data to FormData
+    formData.append('id', currentBusinessId);
+    formData.append('email', verifiedEmail);
+    formData.append('landingPageGoal', landingGoal);
+    
+    // Add photos
+    for (const photo of photos) {
+        formData.append('photos', photo);
+    }
+
+    try {
+        const response = await fetch('/register', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (response.ok) {
+            // Start the landing page generation process
+            generateLanding();
+        } else {
+            throw new Error('Registration failed');
+        }
+    } catch (error) {
+        console.error('Registration error:', error);
+        alert('שגיאה בתהליך ההרשמה');
+    }
+}
+
+// Modify generateLanding function to use stored data
+async function generateLanding() {
     // Show split screen and hide main container
     document.getElementById('main-container').style.display = 'none';
     document.getElementById('split-screen').style.display = 'grid';
     document.getElementById('preview').classList.add('active');
 
-    // Update input summary to include business registration
-    document.getElementById('business-name').textContent = businessId;
-    document.getElementById('business-registration-display').textContent = businessRegistration;
-    document.getElementById('description-summary').textContent = businessUnique;
+    // Update input summary
+    document.getElementById('business-name').textContent = formData.get('businessName');
+    document.getElementById('business-registration-display').textContent = currentBusinessId;
+    document.getElementById('description-summary').textContent = formData.get('businessDescription');
 
     let fullHTML = '';
     let isCollectingHTML = false;
 
     // Start SSE connection
-    const eventSource = new EventSource(`/stream?businessId=${encodeURIComponent(businessId)}&description=${encodeURIComponent(businessUnique)}`);
+    const eventSource = new EventSource(`/stream?businessId=${encodeURIComponent(formData.get('businessName'))}&description=${encodeURIComponent(formData.get('businessDescription'))}`);
 
     eventSource.onmessage = (event) => {
         try {

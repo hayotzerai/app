@@ -124,18 +124,28 @@
         <h2 class="text-xl font-bold mb-4">הזן את כתובת האימייל שלך</h2>
         <input type="email" id="email" class="border w-full p-2 mb-4 text-right" 
                placeholder="כתובת אימייל" dir="ltr" />
-        <button onclick="verifyEmail()" 
+        <button id="email-submit-btn" onclick="verifyEmail()" 
                 class="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-          שלח קוד אימות
+            שלח קוד אימות
         </button>
+        <p class="text-sm text-gray-500 mt-2">קוד אימות יישלח לכתובת האימייל שלך</p>
       </div>
 
       <!-- OTP Verification Step -->
       <div id="step-otp" class="form-step">
-        <h2 class="text-xl font-bold mb-4">הזן את הקוד שקיבלת</h2>
-        <input type="text" id="otp" class="border w-full p-2 mb-4 text-right" placeholder="קוד אימות" />
-        <button onclick="verifyOTP()" class="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-          אמת קוד
+        <h2 class="text-xl font-bold mb-4">הזן את קוד האימות</h2>
+        <input type="text" id="otp" 
+               class="border w-full p-2 mb-4 text-center text-2xl tracking-widest" 
+               placeholder="- - - - - -"
+               maxlength="6"
+               pattern="\d{6}" />
+        <button onclick="verifyOTP()" 
+                class="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+            אמת קוד
+        </button>
+        <button onclick="verifyEmail()" 
+                class="w-full px-4 py-2 mt-2 bg-gray-500 text-white rounded hover:bg-gray-600">
+            שלח קוד חדש
         </button>
       </div>
 
@@ -164,6 +174,34 @@
           placeholder="מה מייחד את העסק שלך? (עד 2 שורות)"></textarea>
         <button onclick="generateLanding()" class="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
           צור דף נחיתה
+        </button>
+      </div>
+
+      <!-- Uploads Step -->
+      <div id="step-uploads" class="form-step">
+        <h2 class="text-xl font-bold mb-4">העלאת תמונות</h2>
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">העלה עד 5 תמונות של העסק שלך</label>
+          <input type="file" 
+                 id="business-photos" 
+                 multiple 
+                 accept="image/*"
+                 class="w-full p-2 border rounded"
+                 onchange="validateFiles(this)" />
+          <p class="text-xs text-gray-500 mt-1">גודל מקסימלי: 10MB לתמונה</p>
+        </div>
+        
+        <div class="mb-4">
+          <label class="block text-sm font-medium text-gray-700 mb-2">מה המטרה של דף הנחיתה?</label>
+          <textarea id="landing-goal" 
+                    class="w-full p-2 border rounded text-right" 
+                    rows="3"
+                    placeholder="לדוגמה: השגת לידים, מכירת מוצר, הרשמה לאירוע..."></textarea>
+        </div>
+        
+        <button onclick="submitRegistration()" 
+                class="w-full px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+          סיים הרשמה והתחל ביצירת דף הנחיתה
         </button>
       </div>
     </div>

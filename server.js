@@ -2,10 +2,14 @@ require('dotenv').config();
 const express = require('express');
 const { OpenAI } = require('openai');
 const nodemailer = require('nodemailer');
+
 const { createAndPushRepo } = require('./github.js');
 const fs = require('fs').promises;
 const path = require('path');
 const os = require('os'); // Add this to handle temporary directories
+
+const { admin, db, bucket, auth } = require('./config.js');
+const upload = require('./middleware/fileUploading.js');
 
 const app = express();
 const port = 3000;
@@ -15,69 +19,169 @@ app.use(express.static('public'));
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-// Store OTP codes temporarily (in production, use a proper database)
-const otpStore = new Map();
-
-// Create email transporter
 const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: {
         user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_APP_PASSWORD // Use App Password for Gmail
+        pass: process.env.EMAIL_APP_PASSWORD
     }
 });
 
-// Generate OTP
-function generateOTP() {
+// Add this helper function at the top
+function generateVerificationCode() {
     return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
-app.post('/send-otp', async (req, res) => {
+///////////////////////
+// Add new user schema
+const createUser = async (userData) => {
+    try {
+      const userRef = db.collection('users').doc(userData.id);
+      await userRef.set({
+        id: userData.id,
+        email: userData.email,
+        businessName: userData.businessName,
+        businessDescription: userData.businessDescription,
+        landingPageGoal: userData.landingPageGoal,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      return userRef;
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
+  };
+  
+// Replace the /send-verification route
+app.post('/send-verification', async (req, res) => {
     const { email } = req.body;
 
     try {
-        const otp = generateOTP();
+        const verificationCode = generateVerificationCode();
         
-        // Email options
+        // Store the code in Firestore with expiration
+        await db.collection('verificationCodes').doc(email).set({
+            code: verificationCode,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            expires: admin.firestore.Timestamp.fromMillis(Date.now() + 10 * 60 * 1000) // 10 minutes
+        });
+
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: email,
-            subject: 'Your Verification Code',
+            subject: 'קוד אימות עבור דף הנחיתה שלך',
             html: `
-                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2 style="color: #333;">Verification Code</h2>
-                    <p>Your verification code is:</p>
-                    <h1 style="color: #0066cc; font-size: 32px; letter-spacing: 5px;">${otp}</h1>
-                    <p>This code will expire in 5 minutes.</p>
+                <div dir="rtl" style="font-family: Arial, sans-serif;">
+                    <h2>קוד האימות שלך</h2>
+                    <p>הקוד שלך הוא:</p>
+                    <h1 style="font-size: 32px; letter-spacing: 5px; color: #0066cc;">${verificationCode}</h1>
+                    <p>הקוד תקף ל-10 דקות בלבד.</p>
                 </div>
             `
         };
 
-        // Send email
         await transporter.sendMail(mailOptions);
-        
-        // Store OTP with 5-minute expiration
-        otpStore.set(email, otp);
-        setTimeout(() => otpStore.delete(email), 5 * 60 * 1000);
-
-        res.status(200).json({ message: 'OTP sent successfully' });
+        res.status(200).json({ message: 'Verification code sent' });
     } catch (error) {
-        console.error('Email error:', error);
-        res.status(500).json({ error: 'Failed to send OTP' });
+        console.error('Email verification error:', error);
+        res.status(500).json({ error: 'Failed to send verification code' });
     }
 });
 
-app.post('/verify-otp', (req, res) => {
-    const { email, otp } = req.body;
-    const storedOTP = otpStore.get(email);
+// Add new verification endpoint
+app.post('/verify-code', async (req, res) => {
+    const { email, code } = req.body;
 
-    if (storedOTP && storedOTP === otp) {
-        otpStore.delete(email);
-        res.status(200).json({ message: 'OTP verified successfully' });
-    } else {
-        res.status(400).json({ error: 'Invalid OTP' });
+    try {
+        const codeDoc = await db.collection('verificationCodes').doc(email).get();
+        
+        if (!codeDoc.exists) {
+            return res.status(400).json({ error: 'No verification code found' });
+        }
+
+        const codeData = codeDoc.data();
+        
+        if (codeData.expires.toMillis() < Date.now()) {
+            await db.collection('verificationCodes').doc(email).delete();
+            return res.status(400).json({ error: 'Verification code expired' });
+        }
+
+        if (codeData.code !== code) {
+            return res.status(400).json({ error: 'Invalid verification code' });
+        }
+
+        // Create or update user with verified email
+        await auth.createUser({
+            email: email,
+            emailVerified: true
+        }).catch(() => {
+            // User might already exist, update verification status
+            return auth.updateUser(email, { emailVerified: true });
+        });
+
+        // Delete the used verification code
+        await db.collection('verificationCodes').doc(email).delete();
+
+        res.status(200).json({ message: 'Email verified successfully' });
+    } catch (error) {
+        console.error('Verification error:', error);
+        res.status(500).json({ error: 'Verification failed' });
     }
 });
+
+app.post('/register', upload.array('photos', 5), async (req, res) => {
+        const { id, email, businessName, businessDescription, landingPageGoal } = req.body;
+        const files = req.files;
+
+        try {
+            // Generate URLs for uploaded files
+            const photoUrls = files.map(file => {
+                return `/uploads/${id}/${file.filename}`;
+            });
+
+            // Create user in Firestore
+            await createUser({
+                id,
+                email,
+                businessName,
+                businessDescription,
+                landingPageGoal,
+                photoUrls
+            });
+
+            res.status(200).json({ message: 'User registered successfully' });
+        } catch (error) {
+            console.error('Registration error:', error);
+            res.status(500).json({ error: 'Registration failed' });
+        }
+    });
+  
+// Replace verify-otp with this:
+app.post('/verify-email', async (req, res) => {
+    const { email } = req.body;
+
+    try {
+        const userRecord = await auth.getUserByEmail(email);
+        
+        if (userRecord.emailVerified) {
+            res.status(200).json({ 
+                message: 'Email verified successfully',
+                verified: true 
+            });
+        } else {
+            res.status(200).json({ 
+                message: 'Email not verified yet',
+                verified: false 
+            });
+        }
+    } catch (error) {
+        console.error('Verification error:', error);
+        res.status(500).json({ error: 'Verification failed' });
+    }
+});
+///////////////////////
+
+
 
 app.get('/stream', async (req, res) => {
     // Set headers for SSE
