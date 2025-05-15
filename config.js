@@ -1,6 +1,6 @@
 const admin = require('firebase-admin');
 const { getAuth } = require('firebase-admin/auth');
-const serviceAccount = require('./hayotzerai-807bf-firebase-adminsdk-fbsvc-31690b1188.json');
+const serviceAccount = require('./hayotzerai-807bf-firebase-adminsdk-fbsvc-a683eec3d9.json');
 const path = require('path');
 
 admin.initializeApp({
